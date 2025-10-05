@@ -186,6 +186,9 @@ function App({ requestTimeout = 10000 }: AppProps = {}) {
   };
 
   const handleRefresh = () => {
+    // Clear selected Pokemon details when refreshing the list
+    setSelectedPokemon(null);
+    setDetailsError(null);
     fetchPokemonList();
   };
 
