@@ -1,4 +1,6 @@
-import styled from 'styled-components';
+import styled from "styled-components";
+import { SkeletonCard } from "./SkeletonCard";
+import type { PokemonWithImage, PokemonWithDescription } from "../types/pokemon";
 
 const Container = styled.div`
   background: white;
@@ -27,7 +29,7 @@ const RefreshButton = styled.button`
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
-  
+
   &:hover {
     background: #5568d3;
   }
@@ -41,13 +43,13 @@ const Grid = styled.div`
 
 const PokemonCard = styled.div<{ selected: boolean }>`
   padding: 16px;
-  border: 2px solid ${props => props.selected ? '#667eea' : '#e0e0e0'};
+  border: 2px solid ${(props) => (props.selected ? "#667eea" : "#e0e0e0")};
   border-radius: 8px;
   cursor: pointer;
   text-align: center;
   transition: all 0.2s;
-  background: ${props => props.selected ? '#f0f4ff' : 'white'};
-  
+  background: ${(props) => (props.selected ? "#f0f4ff" : "white")};
+
   &:hover {
     border-color: #667eea;
     transform: translateY(-2px);
@@ -80,31 +82,36 @@ const ErrorText = styled.div`
 `;
 
 interface PokemonListProps {
-  pokemon: any[];
+  pokemon: PokemonWithImage[];
   loading: boolean;
   error: string | null;
   onSelect: (url: string) => void;
   onRefresh: () => void;
-  selectedPokemon: any;
+  selectedPokemon: PokemonWithDescription | null;
 }
 
-export function PokemonList({ 
-  pokemon, 
-  loading, 
-  error, 
-  onSelect, 
-  onRefresh,
-  selectedPokemon 
-}: PokemonListProps) {
-  
-  const isSelected = (poke: any) => poke.url === selectedPokemon?.species?.url;
+/**
+ * PokemonList Component
+ *
+ * Displays a grid of Pokemon cards with support for:
+ * - Loading states (skeleton cards for progressive loading)
+ * - Error states with retry functionality
+ * - Selection highlighting
+ *
+ * REFACTORING NOTE (Issue #2):
+ * Now supports progressive loading with skeleton cards for better UX
+ */
+export function PokemonList({ pokemon, loading, error, onSelect, onRefresh, selectedPokemon }: PokemonListProps) {
+  const isSelected = (poke: PokemonWithImage) => poke.url === selectedPokemon?.species?.url;
 
   if (loading) {
     return (
       <Container>
         <Header>
           <Title>Pokémon List</Title>
-          <RefreshButton onClick={onRefresh} disabled>Refresh</RefreshButton>
+          <RefreshButton onClick={onRefresh} disabled>
+            Refresh
+          </RefreshButton>
         </Header>
         <LoadingText>Loading Pokémon...</LoadingText>
       </Container>
@@ -130,16 +137,23 @@ export function PokemonList({
         <RefreshButton onClick={onRefresh}>Refresh</RefreshButton>
       </Header>
       <Grid>
-        {pokemon.map((poke) => (
-          <PokemonCard 
-            key={poke.name}
-            selected={isSelected(poke)}
-            onClick={() => onSelect(poke.url)}
-          >
-            <PokemonImage src={poke.image} />
-            <PokemonName>{poke.name}</PokemonName>
-          </PokemonCard>
-        ))}
+        {pokemon.map((poke) => {
+          // Show skeleton card while individual Pokemon is loading
+          if (poke.isLoading) {
+            return <SkeletonCard key={poke.name} />;
+          }
+
+          return (
+            <PokemonCard key={poke.name} selected={isSelected(poke)} onClick={() => onSelect(poke.url)}>
+              {poke.image ? (
+                <PokemonImage src={poke.image} alt={`${poke.name} sprite`} />
+              ) : (
+                <PokemonImage src="https://via.placeholder.com/96?text=?" alt="Pokemon sprite unavailable" />
+              )}
+              <PokemonName>{poke.name}</PokemonName>
+            </PokemonCard>
+          );
+        })}
       </Grid>
     </Container>
   );

@@ -1,4 +1,5 @@
-import styled from 'styled-components';
+import styled from "styled-components";
+import type { PokemonWithDescription } from "../types/pokemon";
 
 const Container = styled.div`
   background: white;
@@ -37,7 +38,7 @@ const RetryButton = styled.button`
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
-  
+
   &:hover {
     background: #5568d3;
   }
@@ -105,7 +106,7 @@ const Types = styled.div`
 const TypeBadge = styled.span<{ type: string }>`
   padding: 6px 16px;
   border-radius: 20px;
-  background: ${props => getTypeColor(props.type)};
+  background: ${(props) => getTypeColor(props.type)};
   color: white;
   font-weight: 600;
   font-size: 14px;
@@ -142,7 +143,7 @@ const StatBarContainer = styled.div`
 const StatBar = styled.div<{ value: number }>`
   height: 100%;
   background: linear-gradient(90deg, #667eea, #764ba2);
-  width: ${props => (props.value / 255) * 100}%;
+  width: ${(props) => (props.value / 255) * 100}%;
   transition: width 0.3s ease;
 `;
 
@@ -201,31 +202,31 @@ const PhysicalStatValue = styled.div`
 `;
 
 function getTypeColor(type: string): string {
-  const colors: any = {
-    normal: '#A8A878',
-    fire: '#F08030',
-    water: '#6890F0',
-    electric: '#F8D030',
-    grass: '#78C850',
-    ice: '#98D8D8',
-    fighting: '#C03028',
-    poison: '#A040A0',
-    ground: '#E0C068',
-    flying: '#A890F0',
-    psychic: '#F85888',
-    bug: '#A8B820',
-    rock: '#B8A038',
-    ghost: '#705898',
-    dragon: '#7038F8',
-    dark: '#705848',
-    steel: '#B8B8D0',
-    fairy: '#EE99AC',
+  const colors: Record<string, string> = {
+    normal: "#A8A878",
+    fire: "#F08030",
+    water: "#6890F0",
+    electric: "#F8D030",
+    grass: "#78C850",
+    ice: "#98D8D8",
+    fighting: "#C03028",
+    poison: "#A040A0",
+    ground: "#E0C068",
+    flying: "#A890F0",
+    psychic: "#F85888",
+    bug: "#A8B820",
+    rock: "#B8A038",
+    ghost: "#705898",
+    dragon: "#7038F8",
+    dark: "#705848",
+    steel: "#B8B8D0",
+    fairy: "#EE99AC",
   };
-  return colors[type] || '#777';
+  return colors[type] || "#777";
 }
 
 interface PokemonDetailsProps {
-  pokemon: any;
+  pokemon: PokemonWithDescription | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -257,9 +258,7 @@ export function PokemonDetails({ pokemon, loading, error, onRetry }: PokemonDeta
     return (
       <Container>
         <Title>Pokémon Details</Title>
-        <EmptyState>
-          👆 Select a Pokémon from the list to view details
-        </EmptyState>
+        <EmptyState>👆 Select a Pokémon from the list to view details</EmptyState>
       </Container>
     );
   }
@@ -269,10 +268,10 @@ export function PokemonDetails({ pokemon, loading, error, onRetry }: PokemonDeta
       <Title>Pokémon Details</Title>
       <DetailsContent>
         <Header>
-          <PokemonImage src={pokemon.sprites.front_default} />
+          <PokemonImage src={pokemon.sprites.front_default || ""} alt={`${pokemon.name} sprite`} />
           <HeaderInfo>
             <PokemonName>{pokemon.name}</PokemonName>
-            <PokemonId>#{pokemon.id.toString().padStart(3, '0')}</PokemonId>
+            <PokemonId>#{pokemon.id.toString().padStart(3, "0")}</PokemonId>
           </HeaderInfo>
         </Header>
 
@@ -284,7 +283,7 @@ export function PokemonDetails({ pokemon, loading, error, onRetry }: PokemonDeta
         <Section>
           <SectionTitle>Types</SectionTitle>
           <Types>
-            {pokemon.types.map((t: any) => (
+            {pokemon.types.map((t) => (
               <TypeBadge key={t.type.name} type={t.type.name}>
                 {t.type.name}
               </TypeBadge>
@@ -295,10 +294,8 @@ export function PokemonDetails({ pokemon, loading, error, onRetry }: PokemonDeta
         <Section>
           <SectionTitle>Abilities</SectionTitle>
           <Abilities>
-            {pokemon.abilities.map((a: any) => (
-              <AbilityBadge key={a.ability.name}>
-                {a.ability.name.replace('-', ' ')}
-              </AbilityBadge>
+            {pokemon.abilities.map((a) => (
+              <AbilityBadge key={a.ability.name}>{a.ability.name.replace("-", " ")}</AbilityBadge>
             ))}
           </Abilities>
         </Section>
@@ -320,9 +317,9 @@ export function PokemonDetails({ pokemon, loading, error, onRetry }: PokemonDeta
         <Section>
           <SectionTitle>Base Stats</SectionTitle>
           <Stats>
-            {pokemon.stats.map((stat: any) => (
+            {pokemon.stats.map((stat) => (
               <StatRow key={stat.stat.name}>
-                <StatName>{stat.stat.name.replace('-', ' ')}</StatName>
+                <StatName>{stat.stat.name.replace("-", " ")}</StatName>
                 <StatBarContainer>
                   <StatBar value={stat.base_stat} />
                 </StatBarContainer>
