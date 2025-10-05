@@ -226,7 +226,7 @@ export interface PokemonWithDescription extends Pokemon {
 
 1. **10 Pokemon is the desired limit**: Implementation still shows 10 random Pokemon, not configurable
 2. **PokeAPI is reliable**: Assuming 10-second timeout is sufficient for slow connections
-3. **No caching needed**: Each refresh fetches new data (React Query would add caching)
+3. **No caching needed**: Each refresh fetches new data
 4. **Modern browser support**: Using `AbortController` (not IE11 compatible)
 5. **Test environment**: Tests use mocked fetch, not actual API calls
 
@@ -362,7 +362,7 @@ function App() {
 
 #### Architecture Pattern: Micro-Frontend with Widget Platform
 
-```typescript
+````typescript
 // 1. WIDGET REGISTRY SYSTEM
 interface Widget {
   id: string;
@@ -459,51 +459,6 @@ class APIManager {
   }
 }
 
-// 6. WIDGET PERSONALIZATION & PERSISTENCE
-interface WidgetLayout {
-  userId: string;
-  enabledWidgets: string[]; // Only load what user wants
-  positions: Map<string, { x: number; y: number }>;
-  sizes: Map<string, { width: number; height: number }>;
-}
-
-function useWidgetLayout() {
-  const [layout, setLayout] = useState<WidgetLayout>(() => {
-    return JSON.parse(localStorage.getItem('widgetLayout') || '{}');
-  });
-
-  const enabledWidgets = layout.enabledWidgets || [];
-
-  return {
-    widgets: widgetRegistry.filter(w => enabledWidgets.includes(w.id)),
-    layout,
-    updateLayout: (newLayout) => {
-      setLayout(newLayout);
-      localStorage.setItem('widgetLayout', JSON.stringify(newLayout));
-    }
-  };
-}
-
-// 7. CODE SPLITTING BY CATEGORY
-// widgets/
-//   info/ (bundle: info-widgets.js)
-//   stats/ (bundle: stats-widgets.js)
-//   social/ (bundle: social-widgets.js)
-//   tools/ (bundle: tools-widgets.js)
-
-// Vite config:
-build: {
-  rollupOptions: {
-    output: {
-      manualChunks: {
-        'info-widgets': ['./src/widgets/info/*'],
-        'stats-widgets': ['./src/widgets/stats/*'],
-        // ...
-      }
-    }
-  }
-}
-```
 
 #### Key Architectural Changes:
 
@@ -513,8 +468,6 @@ build: {
 | **Loading**      | Eager               | Lazy load on visibility          |
 | **State**        | useState + props    | Zustand/Redux + Context          |
 | **API Calls**    | Individual fetch    | Request batching + deduplication |
-| **Bundle**       | Single bundle       | Code splitting by category       |
-| **User Control** | Fixed layout        | Customizable dashboard           |
 | **Priority**     | All equal           | High/Medium/Low load order       |
 
 #### Technologies to Add:
@@ -523,352 +476,10 @@ build: {
 2. **Zustand** or **Redux Toolkit**: Centralized state management
 3. **React Query**: Request caching, deduplication, background refetching
 4. **react-grid-layout**: Drag-and-drop widget positioning
-5. **Web Workers**: Offload heavy computation from main thread
-6. **IndexedDB**: Client-side caching of widget data
+
 
 **Estimated Effort:** 4-6 weeks full redesign
 
----
-
-### Real-time Data: If widgets needed live updates (WebSocket), what changes?
-
-**Architecture Changes Required:**
-
-#### 1. WebSocket Connection Management (2-3 days)
-
-```typescript
-// services/websocket.ts
-class PokemonWebSocketManager {
-  private ws: WebSocket | null = null;
-  private subscriptions: Map<string, Set<(data: any) => void>> = new Map();
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private heartbeatInterval: NodeJS.Timer | null = null;
-
-  connect() {
-    this.ws = new WebSocket("wss://pokeapi-realtime.com/v1/subscribe");
-
-    this.ws.onopen = () => {
-      console.log("WebSocket connected");
-      this.reconnectAttempts = 0;
-      this.startHeartbeat();
-    };
-
-    this.ws.onmessage = (event) => {
-      const { channel, data } = JSON.parse(event.data);
-      this.notifySubscribers(channel, data);
-    };
-
-    this.ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
-
-    this.ws.onclose = () => {
-      this.stopHeartbeat();
-      this.reconnect();
-    };
-  }
-
-  subscribe(channel: string, callback: (data: any) => void) {
-    if (!this.subscriptions.has(channel)) {
-      this.subscriptions.set(channel, new Set());
-      // Send subscription message to server
-      this.send({ type: "subscribe", channel });
-    }
-
-    this.subscriptions.get(channel)!.add(callback);
-
-    // Return unsubscribe function
-    return () => {
-      const subs = this.subscriptions.get(channel);
-      if (subs) {
-        subs.delete(callback);
-        if (subs.size === 0) {
-          this.subscriptions.delete(channel);
-          this.send({ type: "unsubscribe", channel });
-        }
-      }
-    };
-  }
-
-  private notifySubscribers(channel: string, data: any) {
-    const subscribers = this.subscriptions.get(channel);
-    if (subscribers) {
-      subscribers.forEach((callback) => callback(data));
-    }
-  }
-
-  private reconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-      console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-      setTimeout(() => this.connect(), delay);
-    }
-  }
-
-  private startHeartbeat() {
-    this.heartbeatInterval = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.send({ type: "ping" });
-      }
-    }, 30000); // Every 30 seconds
-  }
-
-  private stopHeartbeat() {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
-
-  private send(message: any) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
-    }
-  }
-
-  disconnect() {
-    this.stopHeartbeat();
-    this.subscriptions.clear();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-  }
-}
-
-// Singleton instance
-export const wsManager = new PokemonWebSocketManager();
-```
-
-#### 2. React Hook for WebSocket Subscriptions (1 day)
-
-```typescript
-// hooks/useWebSocket.ts
-function useWebSocket<T>(channel: string) {
-  const [data, setData] = useState<T | null>(null);
-  const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    // Connect WebSocket on mount
-    wsManager.connect();
-    setStatus("connected");
-
-    // Subscribe to channel
-    const unsubscribe = wsManager.subscribe(channel, (newData: T) => {
-      setData(newData);
-    });
-
-    // Cleanup on unmount
-    return () => {
-      unsubscribe();
-    };
-  }, [channel]);
-
-  return { data, status, error };
-}
-
-// Usage in widget:
-function PokemonStats({ pokemonId }: { pokemonId: string }) {
-  const { data: liveStats, status } = useWebSocket<PokemonStats>(`pokemon/${pokemonId}/stats`);
-
-  return (
-    <Container>
-      {status === "connected" && <LiveIndicator>🟢 Live</LiveIndicator>}
-      {liveStats && <StatsDisplay stats={liveStats} />}
-    </Container>
-  );
-}
-```
-
-#### 3. Optimistic Updates & Conflict Resolution (2-3 days)
-
-```typescript
-// Store with optimistic updates
-const useWidgetStore = create<WidgetStore>((set, get) => ({
-  pokemonData: new Map(),
-  pendingUpdates: new Map(),
-
-  // Optimistic update (immediate UI update)
-  updatePokemonOptimistic: (id, updates) => {
-    const current = get().pokemonData.get(id);
-    const optimistic = { ...current, ...updates, _optimistic: true };
-
-    set((state) => ({
-      pokemonData: new Map(state.pokemonData).set(id, optimistic),
-      pendingUpdates: new Map(state.pendingUpdates).set(id, updates),
-    }));
-  },
-
-  // Server confirmation (replace optimistic with real data)
-  updatePokemonConfirmed: (id, serverData) => {
-    set((state) => {
-      const pending = state.pendingUpdates;
-      pending.delete(id);
-
-      return {
-        pokemonData: new Map(state.pokemonData).set(id, serverData),
-        pendingUpdates: pending,
-      };
-    });
-  },
-
-  // Conflict resolution (server data differs from optimistic)
-  resolveConflict: (id, serverData) => {
-    const pending = get().pendingUpdates.get(id);
-
-    // Merge strategy: server wins, but keep user's pending changes
-    const merged = { ...serverData, ...pending };
-
-    set((state) => ({
-      pokemonData: new Map(state.pokemonData).set(id, merged),
-    }));
-  },
-}));
-```
-
-#### 4. Rate Limiting & Throttling (1 day)
-
-```typescript
-// Prevent excessive re-renders from rapid WebSocket updates
-function useThrottledWebSocket<T>(channel: string, throttleMs = 500) {
-  const { data: rawData, status, error } = useWebSocket<T>(channel);
-  const [throttledData, setThrottledData] = useState<T | null>(rawData);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setThrottledData(rawData);
-    }, throttleMs);
-
-    return () => clearTimeout(handler);
-  }, [rawData, throttleMs]);
-
-  return { data: throttledData, status, error };
-}
-
-// Usage:
-function LivePokemonList() {
-  // Updates at most every 500ms, even if server sends 100 updates/sec
-  const { data: pokemonList } = useThrottledWebSocket("pokemon/list", 500);
-
-  return <PokemonCards data={pokemonList} />;
-}
-```
-
-#### 5. Offline Support & Queue (2-3 days)
-
-```typescript
-// Queue user actions when offline, replay when reconnected
-class OfflineQueue {
-  private queue: Array<{ action: string; payload: any; timestamp: number }> = [];
-
-  add(action: string, payload: any) {
-    this.queue.push({ action, payload, timestamp: Date.now() });
-    localStorage.setItem("offlineQueue", JSON.stringify(this.queue));
-  }
-
-  async replayAll(wsManager: PokemonWebSocketManager) {
-    const items = [...this.queue];
-    this.queue = [];
-    localStorage.removeItem("offlineQueue");
-
-    for (const item of items) {
-      // Skip actions older than 5 minutes (stale)
-      if (Date.now() - item.timestamp < 5 * 60 * 1000) {
-        await wsManager.send(item);
-      }
-    }
-  }
-}
-
-// Hook for online/offline status
-function useOnlineStatus() {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-
-  useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      offlineQueue.replayAll(wsManager);
-    };
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    return () => {
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-    };
-  }, []);
-
-  return isOnline;
-}
-```
-
-#### 6. Visual Indicators for Live Updates (1 day)
-
-```typescript
-// Highlight changed fields
-function AnimatedStatValue({ value, label }: { value: number; label: string }) {
-  const [prevValue, setPrevValue] = useState(value);
-  const [isAnimating, setIsAnimating] = useState(false);
-
-  useEffect(() => {
-    if (value !== prevValue) {
-      setIsAnimating(true);
-      setTimeout(() => setIsAnimating(false), 1000);
-      setPrevValue(value);
-    }
-  }, [value, prevValue]);
-
-  const isIncrease = value > prevValue;
-
-  return (
-    <StatValue className={isAnimating ? "pulse" : ""}>
-      {label}: {value}
-      {isAnimating && <ChangeIndicator increase={isIncrease}>{isIncrease ? "↑" : "↓"}</ChangeIndicator>}
-    </StatValue>
-  );
-}
-
-// Toast notifications for important updates
-function useLiveUpdateToast() {
-  const { data, status } = useWebSocket("pokemon/events");
-
-  useEffect(() => {
-    if (data?.type === "rare_pokemon_appeared") {
-      toast.success(`${data.pokemon.name} appeared nearby! 🎉`);
-    }
-  }, [data]);
-}
-```
-
-#### Summary of Changes:
-
-| Component           | Current (HTTP)        | Real-time (WebSocket)                   |
-| ------------------- | --------------------- | --------------------------------------- |
-| **Connection**      | Request-response      | Persistent connection                   |
-| **Data Flow**       | Pull (user initiates) | Push (server initiates)                 |
-| **State Updates**   | Manual refresh        | Automatic live updates                  |
-| **Error Handling**  | Retry on demand       | Auto-reconnect with exponential backoff |
-| **Bandwidth**       | ~100KB per refresh    | ~1KB per update                         |
-| **Latency**         | 500ms-2s per request  | <100ms per update                       |
-| **Offline Support** | Fails immediately     | Queue and replay                        |
-| **User Feedback**   | Loading spinner       | Live indicator + animations             |
-
-#### Technologies to Add:
-
-1. **Socket.IO** or **native WebSocket**: Real-time communication
-2. **Redux Toolkit** with middleware: Optimistic updates and conflict resolution
-3. **React Query** with streaming: Merge REST and WebSocket data
-4. **Service Workers**: Offline queue management
-5. **Framer Motion**: Smooth animations for live data changes
-
-**Estimated Effort:** 2-3 weeks for full real-time implementation
-
----
 
 ## 3. Production Readiness
 
@@ -901,7 +512,7 @@ onFID(sendToAnalytics); // First Input Delay (target: <100ms)
 onLCP(sendToAnalytics); // Largest Contentful Paint (target: <2.5s)
 onFCP(sendToAnalytics); // First Contentful Paint (target: <1.8s)
 onTTFB(sendToAnalytics); // Time to First Byte (target: <600ms)
-```
+````
 
 **Custom Performance Metrics:**
 
@@ -970,236 +581,394 @@ const fetchPokemonList = async () => {
 
 ---
 
-##### 2. Error Tracking
+##### 2. Error Tracking (Simple Self-Contained Solution)
+
+**Simple LocalStorage-Based Error Tracking** (No External Services Required)
 
 ```typescript
-// Sentry integration for error tracking
-import * as Sentry from "@sentry/react";
+// services/errorLogger.ts
 
-Sentry.init({
-  dsn: "YOUR_SENTRY_DSN",
-  environment: process.env.NODE_ENV,
-  tracesSampleRate: 1.0, // Capture 100% of transactions for performance monitoring
+interface ErrorLog {
+  id: string;
+  timestamp: number;
+  type: "API_ERROR" | "IMAGE_ERROR" | "TIMEOUT" | "NETWORK" | "JAVASCRIPT";
+  severity: "low" | "medium" | "high" | "critical";
+  message: string;
+  endpoint?: string;
+  errorStack?: string;
+  context?: Record<string, any>;
+  userAgent: string;
+  url: string;
+}
 
-  beforeSend(event, hint) {
-    // Add custom context
-    event.contexts = {
-      ...event.contexts,
-      pokemon: {
-        selectedPokemon: currentPokemonState,
-        listSize: pokemonListSize,
-      },
+class SimpleErrorTracker {
+  private static readonly STORAGE_KEY = "pokemon_error_logs";
+  private static readonly MAX_LOGS = 100; // Keep last 100 errors
+  private static readonly LOG_RETENTION_DAYS = 7;
+
+  /**
+   * Log an error to localStorage
+   */
+  static logError(type: ErrorLog["type"], message: string, severity: ErrorLog["severity"] = "medium", context?: Record<string, any>): void {
+    const errorLog: ErrorLog = {
+      id: this.generateId(),
+      timestamp: Date.now(),
+      type,
+      severity,
+      message,
+      context,
+      userAgent: navigator.userAgent,
+      url: window.location.href,
+      errorStack: new Error().stack,
     };
-    return event;
-  },
-});
 
-// Enhanced error logging
-class ErrorTracker {
-  static trackAPIError(endpoint: string, error: Error, context: any) {
-    console.error(`API Error [${endpoint}]:`, error);
+    // Log to console for development
+    if (process.env.NODE_ENV === "development") {
+      console.group(`🔴 ${severity.toUpperCase()} - ${type}`);
+      console.error(message);
+      console.table(context);
+      console.trace();
+      console.groupEnd();
+    }
 
-    Sentry.captureException(error, {
-      tags: {
-        errorType: "API_ERROR",
-        endpoint,
-      },
-      extra: context,
-    });
+    // Save to localStorage
+    this.saveToStorage(errorLog);
 
-    // Track error rate metrics
-    analytics.track("API Error", {
+    // Send to server in production (optional)
+    if (process.env.NODE_ENV === "production") {
+      this.sendToServer(errorLog);
+    }
+  }
+
+  /**
+   * Track API errors
+   */
+  static trackAPIError(endpoint: string, error: Error, context?: any): void {
+    this.logError("API_ERROR", `API request failed: ${endpoint}`, "high", {
       endpoint,
       errorMessage: error.message,
-      stack: error.stack,
-      context,
+      errorName: error.name,
+      ...context,
     });
   }
 
-  static trackPokemonLoadFailure(pokemonName: string, error: Error) {
-    Sentry.captureMessage(`Failed to load Pokemon: ${pokemonName}`, {
-      level: "warning",
-      extra: { error, pokemonName },
+  /**
+   * Track image load failures
+   */
+  static trackImageError(imageSrc: string, pokemonName: string): void {
+    this.logError("IMAGE_ERROR", `Failed to load image for ${pokemonName}`, "low", {
+      imageSrc,
+      pokemonName,
     });
   }
+
+  /**
+   * Track timeout errors
+   */
+  static trackTimeout(operation: string, timeoutMs: number): void {
+    this.logError("TIMEOUT", `Operation timed out after ${timeoutMs}ms: ${operation}`, "medium", {
+      operation,
+      timeoutMs,
+    });
+  }
+
+  /**
+   * Track network errors
+   */
+  static trackNetworkError(error: Error, context?: any): void {
+    this.logError("NETWORK", `Network error: ${error.message}`, "high", {
+      errorMessage: error.message,
+      ...context,
+    });
+  }
+
+  /**
+   * Save error to localStorage
+   */
+  private static saveToStorage(errorLog: ErrorLog): void {
+    try {
+      const logs = this.getLogs();
+      logs.unshift(errorLog);
+
+      // Keep only last MAX_LOGS entries
+      const trimmedLogs = logs.slice(0, this.MAX_LOGS);
+
+      // Remove old logs
+      const cutoffTime = Date.now() - this.LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      const recentLogs = trimmedLogs.filter((log) => log.timestamp > cutoffTime);
+
+      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(recentLogs));
+    } catch (err) {
+      console.error("Failed to save error log:", err);
+    }
+  }
+
+  /**
+   * Get all error logs from localStorage
+   */
+  static getLogs(): ErrorLog[] {
+    try {
+      const logs = localStorage.getItem(this.STORAGE_KEY);
+      return logs ? JSON.parse(logs) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get error statistics
+   */
+  static getStats(): {
+    total: number;
+    byType: Record<string, number>;
+    bySeverity: Record<string, number>;
+    last24Hours: number;
+    errorRate: number;
+  } {
+    const logs = this.getLogs();
+    const last24h = Date.now() - 24 * 60 * 60 * 1000;
+
+    const stats = {
+      total: logs.length,
+      byType: {} as Record<string, number>,
+      bySeverity: {} as Record<string, number>,
+      last24Hours: logs.filter((log) => log.timestamp > last24h).length,
+      errorRate: 0,
+    };
+
+    logs.forEach((log) => {
+      stats.byType[log.type] = (stats.byType[log.type] || 0) + 1;
+      stats.bySeverity[log.severity] = (stats.bySeverity[log.severity] || 0) + 1;
+    });
+
+    return stats;
+  }
+
+  /**
+   * Clear all logs
+   */
+  static clearLogs(): void {
+    localStorage.removeItem(this.STORAGE_KEY);
+  }
+
+  /**
+   * Export logs for debugging
+   */
+  static exportLogs(): string {
+    const logs = this.getLogs();
+    return JSON.stringify(logs, null, 2);
+  }
+
+  /**
+   * Send error to backend (optional)
+   */
+  private static async sendToServer(errorLog: ErrorLog): Promise<void> {
+    try {
+      // Only send critical and high severity errors
+      if (errorLog.severity !== "critical" && errorLog.severity !== "high") {
+        return;
+      }
+
+      // Replace with your backend endpoint
+      await fetch("/api/errors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(errorLog),
+      });
+    } catch (err) {
+      // Silently fail - don't want error logging to cause more errors
+      console.warn("Failed to send error to server:", err);
+    }
+  }
+
+  private static generateId(): string {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
 }
+
+export default SimpleErrorTracker;
+```
+
+**Usage in App:**
+
+```typescript
+// In App.tsx
+import SimpleErrorTracker from "./services/errorLogger";
+
+const fetchPokemonList = async () => {
+  setLoading(true);
+  setError(null);
+
+  try {
+    const data = await fetch("https://pokeapi.co/api/v2/pokemon?limit=1000");
+    // ... rest of logic
+  } catch (err) {
+    // Track the error
+    SimpleErrorTracker.trackAPIError("pokemon/list", err as Error, {
+      action: "fetchPokemonList",
+      component: "App",
+    });
+
+    setError("Failed to load Pokemon list");
+  }
+};
+
+// Track timeout
+const controller = new AbortController();
+const timeoutId = setTimeout(() => {
+  controller.abort();
+  SimpleErrorTracker.trackTimeout("Pokemon detail fetch", 10000);
+}, 10000);
+
+// Track image errors
+<img
+  src={pokemon.image}
+  onError={() => {
+    SimpleErrorTracker.trackImageError(pokemon.image, pokemon.name);
+  }}
+/>;
+```
+
+**View Error Dashboard (Dev Tools Console):**
+
+```typescript
+// In browser console:
+SimpleErrorTracker.getStats();
+// Returns:
+// {
+//   total: 15,
+//   byType: { API_ERROR: 3, IMAGE_ERROR: 10, TIMEOUT: 2 },
+//   bySeverity: { low: 10, medium: 2, high: 3 },
+//   last24Hours: 15,
+//   errorRate: 15
+// }
+
+SimpleErrorTracker.getLogs(); // View all logs
+SimpleErrorTracker.exportLogs(); // Export as JSON
+SimpleErrorTracker.clearLogs(); // Clear all logs
 ```
 
 **Error Metrics Dashboard:**
 
-- ✅ **API Error Rate**: Target <1% of requests
-- ✅ **Pokemon Load Failure Rate**: Target <5%
-- ✅ **Timeout Errors**: Track AbortController timeouts
-- ✅ **Image Load Failures**: Track broken images
-- ✅ **JavaScript Errors**: Track unhandled exceptions
+- ✅ **API Error Rate**: Tracked in `byType.API_ERROR`
+- ✅ **Pokemon Load Failure Rate**: Tracked in `byType.IMAGE_ERROR`
+- ✅ **Timeout Errors**: Tracked in `byType.TIMEOUT`
+- ✅ **Network Errors**: Tracked in `byType.NETWORK`
+- ✅ **24h Error Count**: Available in `last24Hours`
 
----
+**Advantages of This Approach:**
 
-##### 3. User Behavior Metrics
-
-```typescript
-// Analytics events
-class AnalyticsTracker {
-  static trackPokemonSelection(pokemon: Pokemon) {
-    analytics.track("Pokemon Selected", {
-      pokemonId: pokemon.id,
-      pokemonName: pokemon.name,
-      timestamp: Date.now(),
-    });
-  }
-
-  static trackRefresh() {
-    analytics.track("List Refreshed", {
-      timestamp: Date.now(),
-    });
-  }
-
-  static trackLoadingAbandonment(timeWaited: number) {
-    if (timeWaited > 5000) {
-      analytics.track("Loading Abandoned", {
-        timeWaited,
-        timestamp: Date.now(),
-      });
-    }
-  }
-
-  static trackSkeletonCardView(duration: number) {
-    analytics.track("Skeleton Card Viewed", {
-      duration,
-      timestamp: Date.now(),
-    });
-  }
-}
-```
-
-**User Metrics Dashboard:**
-
-- ✅ **Bounce Rate**: Track if users leave during skeleton loading
-- ✅ **Time to Interaction**: How long until first Pokemon click
-- ✅ **Refresh Rate**: How often users refresh the list
-- ✅ **Average Session Duration**: Time spent on app
-- ✅ **Pokemon Selection Patterns**: Most viewed Pokemon
-
----
-
-##### 4. Business Metrics
-
-```typescript
-// Track success of parallel loading improvement
-class BusinessMetrics {
-  static trackUserSatisfaction(rating: number) {
-    analytics.track("User Satisfaction", {
-      rating,
-      loadTime: lastLoadTime,
-      timestamp: Date.now(),
-    });
-  }
-
-  static trackFeatureUsage() {
-    analytics.track("Feature Usage", {
-      parallelLoadingEnabled: true,
-      skeletonCardsEnabled: true,
-      timestamp: Date.now(),
-    });
-  }
-}
-```
-
-**Business Metrics Dashboard:**
-
-- ✅ **Load Time Improvement**: Compare before (10-15s) vs after (1-2s)
-- ✅ **User Retention**: Track returning users after performance fix
-- ✅ **Feature Adoption**: Track skeleton card engagement
-- ✅ **API Costs**: Monitor request volume to PokeAPI
+1. ✅ **No External Dependencies** - Pure TypeScript/JavaScript
+2. ✅ **Works Offline** - Uses localStorage
+3. ✅ **Privacy-Friendly** - Data stays on user's device
+4. ✅ **Easy to Debug** - Console commands for quick inspection
+5. ✅ **Optional Backend** - Can send to your own server if needed
+6. ✅ **Automatic Cleanup** - Keeps only last 7 days, max 100 errors
 
 ---
 
 #### Tools to Use:
 
-| Tool                   | Purpose                                 | Implementation Effort |
-| ---------------------- | --------------------------------------- | --------------------- |
-| **Sentry**             | Error tracking & performance monitoring | 2-4 hours             |
-| **Datadog RUM**        | Real User Monitoring (RUM)              | 4-6 hours             |
-| **Google Analytics 4** | User behavior tracking                  | 2-3 hours             |
-| **LogRocket**          | Session replay & debugging              | 3-4 hours             |
-| **Lighthouse CI**      | Automated performance audits            | 4-6 hours             |
-| **New Relic**          | APM & infrastructure monitoring         | 1 day                 |
-| **Grafana**            | Custom metrics dashboards               | 2-3 days              |
+| Tool                     | Purpose                    | Implementation Effort | Cost    |
+| ------------------------ | -------------------------- | --------------------- | ------- | --- |
+| **SimpleErrorTracker**   | Self-hosted error tracking | 2-3 hours             | FREE ✅ |
+| **localStorage Metrics** | Client-side analytics      | 1-2 hours             | FREE ✅ |
+| **Chrome DevTools**      | Performance profiling      | 0 hours               | FREE ✅ |     |
 
-#### Recommended Monitoring Stack:
+#### Recommended Monitoring Stack (No Cost):
 
-**Tier 1 (Essential - Week 1):**
+**Tier 1 (Essential - Day 1):** ✅ FREE
 
-1. **Sentry**: Error tracking, performance monitoring
-2. **Google Analytics 4**: User behavior
-3. **Lighthouse CI**: Automated performance testing
-
-**Tier 2 (Important - Month 1):** 4. **LogRocket** or **FullStory**: Session replay for debugging 5. **Grafana + Prometheus**: Custom metrics dashboards
-
-**Tier 3 (Nice-to-have - Quarter 1):** 6. **Datadog** or **New Relic**: Full-stack observability
+1. **SimpleErrorTracker**: Self-contained error tracking (implemented above)
+2. **localStorage Metrics**: Store metrics client-side
+3. **Console Commands**: Quick stats via `SimpleErrorTracker.getStats()`
+4. **Chrome DevTools**: Performance profiling
 
 ---
 
-#### Implementation Example:
+#### Implementation Example (Simple, No External Services):
 
 ```typescript
-// monitoring/index.ts
-import * as Sentry from "@sentry/react";
-import { BrowserTracing } from "@sentry/tracing";
-import ReactGA from "react-ga4";
+// main.tsx - Initialize tracking
+import SimpleErrorTracker from "./services/errorLogger";
+import { onCLS, onFID, onLCP, onFCP, onTTFB } from "web-vitals";
 
-export class MonitoringService {
-  static initialize() {
-    // Sentry for errors and performance
-    Sentry.init({
-      dsn: process.env.VITE_SENTRY_DSN,
-      integrations: [new BrowserTracing(), new Sentry.Replay()],
-      tracesSampleRate: 1.0,
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
-    });
+// App.tsx - Track errors and performance
+import SimpleErrorTracker from "./services/errorLogger";
 
-    // Google Analytics for user behavior
-    ReactGA.initialize(process.env.VITE_GA_TRACKING_ID);
-  }
+function App() {
+  const [startTime] = useState(Date.now());
 
-  static trackPageView(path: string) {
-    ReactGA.send({ hitType: "pageview", page: path });
-  }
+  const fetchPokemonList = async () => {
+    setLoading(true);
+    setError(null);
 
-  static trackPerformance(metric: string, value: number) {
-    Sentry.captureMessage(`Performance: ${metric}`, {
-      level: "info",
-      extra: { metric, value },
-    });
+    try {
+      const response = await fetch("https://pokeapi.co/api/v2/pokemon?limit=1000");
 
-    ReactGA.event({
-      category: "Performance",
-      action: metric,
-      value: Math.round(value),
-    });
-  }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
-  static trackError(error: Error, context: any) {
-    Sentry.captureException(error, { extra: context });
+      const data = await response.json();
+      // ... rest of logic
 
-    ReactGA.event({
-      category: "Error",
-      action: error.message,
-      label: context.component,
-    });
-  }
+    } catch (err) {
+      // Track the error
+      SimpleErrorTracker.trackAPIError(
+        "pokemon/list",
+        err as Error,
+        { action: "fetchPokemonList", component: "App" }
+      );
+
+      setError("Failed to load Pokemon list");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (/* ... */);
 }
 
-// main.tsx
-MonitoringService.initialize();
+// PokemonList.tsx - Track image errors
+function SafePokemonImage({ image, name }: { image: string | null; name: string }) {
+  const [hasError, setHasError] = useState(false);
 
-// App.tsx - Track parallel loading success
-useEffect(() => {
-  if (!loading && pokemonList.length > 0) {
-    MonitoringService.trackPerformance("parallel_load_complete", Date.now() - startTime);
-  }
-}, [loading, pokemonList]);
+  return (
+    <img
+      src={image}
+      alt={name}
+      onError={() => {
+        SimpleErrorTracker.trackImageError(image || "unknown", name);
+        setHasError(true);
+      }}
+    />
+  );
+}
+```
+
+**View Metrics in Console:**
+
+```javascript
+// In browser console (Chrome DevTools):
+
+// Error tracking
+SimpleErrorTracker.getStats();
+// {
+//   total: 12,
+//   byType: { API_ERROR: 2, IMAGE_ERROR: 8, TIMEOUT: 2 },
+//   bySeverity: { low: 8, medium: 2, high: 2 },
+//   last24Hours: 12
+// }
+
+SimpleErrorTracker.getLogs(); // View all errors
+SimpleErrorTracker.exportLogs(); // Export as JSON
+
+JSON.parse(localStorage.getItem("app_metrics"));
+// { parallelLoadTime: 1523 }
+
+// Clear all data
+SimpleErrorTracker.clearLogs();
 ```
 
 ---
@@ -1213,7 +982,7 @@ useEffect(() => {
 ```typescript
 // components/ErrorBoundary.tsx
 import { Component, ReactNode } from "react";
-import * as Sentry from "@sentry/react";
+import SimpleErrorTracker from "../services/errorLogger";
 
 interface Props {
   children: ReactNode;
@@ -1236,9 +1005,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log to Sentry
-    Sentry.captureException(error, {
-      extra: errorInfo,
+    // Log error using SimpleErrorTracker
+    SimpleErrorTracker.logError("JAVASCRIPT", error.message, "critical", {
+      componentStack: errorInfo.componentStack,
+      errorName: error.name,
     });
 
     console.error("Error Boundary caught:", error, errorInfo);
@@ -1281,342 +1051,11 @@ function ErrorFallback({ error, onReset }: { error: Error | null; onReset: () =>
 
 ---
 
-##### 2. API Error Classification & Handling
-
-```typescript
-// services/apiError.ts
-export enum ErrorType {
-  NETWORK_ERROR = "NETWORK_ERROR",
-  TIMEOUT_ERROR = "TIMEOUT_ERROR",
-  NOT_FOUND = "NOT_FOUND",
-  SERVER_ERROR = "SERVER_ERROR",
-  RATE_LIMIT = "RATE_LIMIT",
-  VALIDATION_ERROR = "VALIDATION_ERROR",
-  UNKNOWN = "UNKNOWN",
-}
-
-export class APIError extends Error {
-  type: ErrorType;
-  statusCode?: number;
-  endpoint: string;
-  retryable: boolean;
-
-  constructor(message: string, type: ErrorType, endpoint: string, statusCode?: number) {
-    super(message);
-    this.type = type;
-    this.endpoint = endpoint;
-    this.statusCode = statusCode;
-    this.retryable = this.isRetryable(type, statusCode);
-    this.name = "APIError";
-  }
-
-  private isRetryable(type: ErrorType, statusCode?: number): boolean {
-    // Retry on network errors, timeouts, and 5xx server errors
-    return type === ErrorType.NETWORK_ERROR || type === ErrorType.TIMEOUT_ERROR || (statusCode !== undefined && statusCode >= 500);
-  }
-
-  static fromResponse(response: Response, endpoint: string): APIError {
-    const statusCode = response.status;
-
-    if (statusCode === 404) {
-      return new APIError("Resource not found", ErrorType.NOT_FOUND, endpoint, statusCode);
-    }
-
-    if (statusCode === 429) {
-      return new APIError("Rate limit exceeded", ErrorType.RATE_LIMIT, endpoint, statusCode);
-    }
-
-    if (statusCode >= 500) {
-      return new APIError("Server error", ErrorType.SERVER_ERROR, endpoint, statusCode);
-    }
-
-    if (statusCode >= 400) {
-      return new APIError("Validation error", ErrorType.VALIDATION_ERROR, endpoint, statusCode);
-    }
-
-    return new APIError("Unknown error", ErrorType.UNKNOWN, endpoint, statusCode);
-  }
-
-  static fromNetworkError(error: Error, endpoint: string): APIError {
-    if (error.name === "AbortError") {
-      return new APIError("Request timeout", ErrorType.TIMEOUT_ERROR, endpoint);
-    }
-
-    return new APIError(error.message || "Network error", ErrorType.NETWORK_ERROR, endpoint);
-  }
-}
-```
-
----
-
-##### 3. Retry Logic with Exponential Backoff
-
-```typescript
-// services/apiClient.ts
-interface RetryConfig {
-  maxAttempts: number;
-  baseDelay: number; // ms
-  maxDelay: number; // ms
-  timeoutMs: number;
-}
-
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxAttempts: 3,
-  baseDelay: 1000,
-  maxDelay: 10000,
-  timeoutMs: 10000,
-};
-
-export class APIClient {
-  static async fetchWithRetry<T>(url: string, options: RequestInit = {}, config: Partial<RetryConfig> = {}): Promise<T> {
-    const retryConfig = { ...DEFAULT_RETRY_CONFIG, ...config };
-    let lastError: APIError | null = null;
-
-    for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), retryConfig.timeoutMs);
-
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        // Check HTTP status
-        if (!response.ok) {
-          throw APIError.fromResponse(response, url);
-        }
-
-        const data = await response.json();
-        return data as T;
-      } catch (error) {
-        if (error instanceof APIError) {
-          lastError = error;
-        } else if (error instanceof Error) {
-          lastError = APIError.fromNetworkError(error, url);
-        } else {
-          lastError = new APIError("Unknown error", ErrorType.UNKNOWN, url);
-        }
-
-        // Don't retry if error is not retryable
-        if (!lastError.retryable) {
-          throw lastError;
-        }
-
-        // Don't retry on last attempt
-        if (attempt === retryConfig.maxAttempts) {
-          throw lastError;
-        }
-
-        // Exponential backoff
-        const delay = Math.min(retryConfig.baseDelay * Math.pow(2, attempt - 1), retryConfig.maxDelay);
-
-        console.warn(`Retrying request to ${url} (attempt ${attempt}/${retryConfig.maxAttempts}) after ${delay}ms`, lastError);
-
-        await this.sleep(delay);
-      }
-    }
-
-    throw lastError;
-  }
-
-  private static sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-}
-
-// Usage in App.tsx
-const fetchPokemonList = async () => {
-  setLoading(true);
-  setError(null);
-
-  try {
-    const data = await APIClient.fetchWithRetry<PokemonListResponse>("https://pokeapi.co/api/v2/pokemon?limit=1000", {}, { maxAttempts: 3, timeoutMs: 10000 });
-
-    // ... rest of logic
-  } catch (err) {
-    if (err instanceof APIError) {
-      // User-friendly error messages
-      const userMessage = getUserFriendlyMessage(err);
-      setError(userMessage);
-
-      // Log detailed error
-      MonitoringService.trackError(err, {
-        component: "PokemonList",
-        action: "fetchPokemonList",
-      });
-    } else {
-      setError("An unexpected error occurred");
-    }
-  } finally {
-    setLoading(false);
-  }
-};
-
-function getUserFriendlyMessage(error: APIError): string {
-  switch (error.type) {
-    case ErrorType.NETWORK_ERROR:
-      return "Network connection issue. Please check your internet and try again.";
-    case ErrorType.TIMEOUT_ERROR:
-      return "Request timed out. The server is taking too long to respond.";
-    case ErrorType.NOT_FOUND:
-      return "Pokemon not found. Please try another one.";
-    case ErrorType.RATE_LIMIT:
-      return "Too many requests. Please wait a moment and try again.";
-    case ErrorType.SERVER_ERROR:
-      return "Server error. Our team has been notified.";
-    default:
-      return "Failed to load Pokemon. Please try again.";
-  }
-}
-```
-
----
-
-##### 4. Circuit Breaker Pattern
-
-```typescript
-// services/circuitBreaker.ts
-class CircuitBreaker {
-  private failureCount = 0;
-  private successCount = 0;
-  private state: "CLOSED" | "OPEN" | "HALF_OPEN" = "CLOSED";
-  private nextAttemptTime = 0;
-
-  constructor(
-    private failureThreshold: number = 5,
-    private resetTimeout: number = 60000, // 1 minute
-    private successThreshold: number = 2
-  ) {}
-
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.state === "OPEN") {
-      if (Date.now() < this.nextAttemptTime) {
-        throw new Error("Circuit breaker is OPEN. Service temporarily unavailable.");
-      }
-      // Try half-open state
-      this.state = "HALF_OPEN";
-    }
-
-    try {
-      const result = await fn();
-      this.onSuccess();
-      return result;
-    } catch (error) {
-      this.onFailure();
-      throw error;
-    }
-  }
-
-  private onSuccess() {
-    this.failureCount = 0;
-
-    if (this.state === "HALF_OPEN") {
-      this.successCount++;
-      if (this.successCount >= this.successThreshold) {
-        this.state = "CLOSED";
-        this.successCount = 0;
-      }
-    }
-  }
-
-  private onFailure() {
-    this.failureCount++;
-    this.successCount = 0;
-
-    if (this.failureCount >= this.failureThreshold) {
-      this.state = "OPEN";
-      this.nextAttemptTime = Date.now() + this.resetTimeout;
-
-      // Alert monitoring
-      MonitoringService.trackError(new Error("Circuit breaker OPEN"), { failureCount: this.failureCount });
-    }
-  }
-
-  getState() {
-    return this.state;
-  }
-}
-
-// Usage
-const pokemonAPIBreaker = new CircuitBreaker(5, 60000);
-
-async function fetchWithCircuitBreaker<T>(url: string): Promise<T> {
-  return pokemonAPIBreaker.execute(() => APIClient.fetchWithRetry<T>(url));
-}
-```
-
----
-
-##### 5. Graceful Degradation
-
-```typescript
-// services/fallbackData.ts
-const FALLBACK_POKEMON = [
-  { id: 25, name: "pikachu", image: "/fallback-images/pikachu.png" },
-  { id: 1, name: "bulbasaur", image: "/fallback-images/bulbasaur.png" },
-  // ... 8 more popular Pokemon
-];
-
-class FallbackService {
-  static async getPokemonList(): Promise<PokemonWithImage[]> {
-    try {
-      // Try to fetch from API
-      const data = await fetchWithCircuitBreaker<PokemonListResponse>("https://pokeapi.co/api/v2/pokemon?limit=1000");
-      return data.results.slice(0, 10);
-    } catch (error) {
-      // API failed - use cached data or fallback data
-      const cachedData = this.getCachedData();
-
-      if (cachedData) {
-        console.warn("Using cached Pokemon data due to API failure");
-        return cachedData;
-      }
-
-      console.warn("Using fallback Pokemon data due to API failure");
-      return FALLBACK_POKEMON;
-    }
-  }
-
-  private static getCachedData(): PokemonWithImage[] | null {
-    const cached = localStorage.getItem("pokemon_cache");
-    if (cached) {
-      const { data, timestamp } = JSON.parse(cached);
-      // Cache valid for 1 hour
-      if (Date.now() - timestamp < 60 * 60 * 1000) {
-        return data;
-      }
-    }
-    return null;
-  }
-
-  static cacheData(data: PokemonWithImage[]) {
-    localStorage.setItem(
-      "pokemon_cache",
-      JSON.stringify({
-        data,
-        timestamp: Date.now(),
-      })
-    );
-  }
-}
-```
-
----
-
 #### Summary of Error Handling Strategy:
 
-| Layer                           | Pattern               | Purpose                    | Implementation Effort |
-| ------------------------------- | --------------------- | -------------------------- | --------------------- |
-| **1. Error Boundary**           | Component-level catch | Prevent full app crash     | 2-3 hours             |
-| **2. API Error Classification** | Typed errors          | Distinguish error types    | 3-4 hours             |
-| **3. Retry with Backoff**       | Automatic retry       | Handle transient failures  | 4-6 hours             |
-| **4. Circuit Breaker**          | Fail fast             | Prevent cascading failures | 4-6 hours             |
-| **5. Graceful Degradation**     | Fallback data         | Keep app functional        | 3-4 hours             |
-| **6. User Feedback**            | Toast notifications   | Clear error communication  | 2-3 hours             |
-| **7. Error Monitoring**         | Sentry integration    | Production debugging       | 2-3 hours             |
+| Layer                 | Pattern               | Purpose                | Implementation Effort |
+| --------------------- | --------------------- | ---------------------- | --------------------- |
+| **1. Error Boundary** | Component-level catch | Prevent full app crash | 2-3 hours             |
 
 **Total Implementation Time:** 2-3 days for complete error handling strategy
 
@@ -1641,98 +1080,13 @@ class FallbackService {
 
 #### A. Code Splitting & Lazy Loading (1-2 days)
 
-```typescript
-// main.tsx - Route-based code splitting
-import { lazy, Suspense } from "react";
-
-const App = lazy(() => import("./App"));
-const PokemonDetails = lazy(() => import("./components/PokemonDetails"));
-
-// Vite config - Manual chunks
-export default defineConfig({
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          "react-vendor": ["react", "react-dom"],
-          "styled-components": ["styled-components"],
-          testing: ["vitest", "@testing-library/react"],
-        },
-      },
-    },
-  },
-});
-```
-
-**Impact:**
-
-- Reduce initial bundle from ~300KB to ~150KB
-- Faster initial page load
-- Better caching (vendor bundles rarely change)
-
----
-
-#### B. Image Optimization (2-3 hours)
-
-```typescript
-// components/PokemonCard.tsx
-function OptimizedPokemonImage({ src, alt }: { src: string; alt: string }) {
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [error, setError] = useState(false);
-
-  return (
-    <ImageContainer>
-      {!isLoaded && !error && <SkeletonImage />}
-
-      <StyledImage
-        src={src}
-        alt={alt}
-        loading="lazy" // Native lazy loading
-        onLoad={() => setIsLoaded(true)}
-        onError={() => {
-          setError(true);
-          // Fallback to placeholder
-        }}
-        style={{ display: isLoaded ? "block" : "none" }}
-      />
-
-      {error && <PlaceholderImage>🎮</PlaceholderImage>}
-    </ImageContainer>
-  );
-}
-
-// Use WebP with fallback
-function ResponsiveImage({ pokemon }: { pokemon: Pokemon }) {
-  return (
-    <picture>
-      <source srcSet={`${pokemon.image}.webp`} type="image/webp" />
-      <source srcSet={`${pokemon.image}.png`} type="image/png" />
-      <img src={pokemon.image} alt={pokemon.name} loading="lazy" />
-    </picture>
-  );
-}
-```
-
-**Impact:**
-
-- Reduce image load time by 60-80% with WebP
-- Lazy loading saves bandwidth on initial load
-- Better UX with skeleton placeholders
-
----
-
-#### C. React Performance Optimizations (3-4 hours)
+#### React Performance Optimizations (3-4 hours)
 
 ```typescript
 // 1. Memoize expensive components
 import { memo, useMemo, useCallback } from "react";
 
-export const PokemonList = memo(function PokemonList({ pokemon, onSelect }: PokemonListProps) {
-  // Component only re-renders if pokemon or onSelect changes
-  return <Grid>{/* ... */}</Grid>;
-});
-
-// 2. Memoize callbacks (Fix Issue #6)
+// 1. Memoize callbacks (Fix Issue #6)
 function App() {
   const handleSelectPokemon = useCallback((url: string) => {
     fetchPokemonDetails(url);
@@ -1750,7 +1104,7 @@ function App() {
   return <PokemonList pokemon={sortedPokemon} onSelect={handleSelectPokemon} />;
 }
 
-// 4. Virtual scrolling for large lists (if scaling to 100+ Pokemon)
+// 2. Virtual scrolling for large lists (if scaling to 100+ Pokemon)
 import { FixedSizeGrid } from "react-window";
 
 function LargePokemonList({ pokemon }: { pokemon: Pokemon[] }) {
@@ -1764,15 +1118,14 @@ function LargePokemonList({ pokemon }: { pokemon: Pokemon[] }) {
 
 **Impact:**
 
-- Reduce re-renders by 70-80%
 - Eliminate unnecessary component updates
 - Virtual scrolling: handle 1000+ items without performance degradation
 
 ---
 
-#### D. Caching & Request Deduplication (1-2 days)
+#### Caching & Request Deduplication (1-2 days)
 
-```typescript
+````typescript
 // Simple in-memory cache
 class CacheManager {
   private cache = new Map<string, { data: any; timestamp: number }>();
@@ -1832,176 +1185,15 @@ async function fetchPokemonDetails(url: string) {
   }
 }
 
-// OR: Use React Query (better solution)
-import { useQuery } from "@tanstack/react-query";
-
-function usePokemonDetails(url: string | null) {
-  return useQuery({
-    queryKey: ["pokemon", url],
-    queryFn: () => fetch(url!).then((res) => res.json()),
-    enabled: !!url,
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-    cacheTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
-    retry: 3,
-  });
-}
-```
-
 **Impact:**
 
 - Eliminate duplicate requests for same Pokemon
 - Instant load for previously viewed Pokemon
 - Reduce API load by 60-80%
 
----
-
-#### E. Web Workers for Heavy Computation (1-2 days)
-
-```typescript
-// workers/pokemonProcessor.worker.ts
-self.onmessage = (event) => {
-  const { type, data } = event.data;
-
-  if (type === "PROCESS_POKEMON_LIST") {
-    // Heavy computation off main thread
-    const processed = data.map((pokemon: Pokemon) => ({
-      ...pokemon,
-      stats: calculateDerivedStats(pokemon),
-      rating: calculateRating(pokemon),
-    }));
-
-    self.postMessage({ type: "PROCESSED", data: processed });
-  }
-};
-
-// App.tsx - Use worker
-const worker = useMemo(() => new Worker(new URL("./workers/pokemonProcessor.worker.ts", import.meta.url)), []);
-
-useEffect(() => {
-  worker.onmessage = (event) => {
-    if (event.data.type === "PROCESSED") {
-      setPokemonList(event.data.data);
-    }
-  };
-}, [worker]);
-
-function processPokemon(rawData: Pokemon[]) {
-  worker.postMessage({ type: "PROCESS_POKEMON_LIST", data: rawData });
-}
-```
-
-**Impact:**
-
-- Keep UI responsive during heavy computation
-- Better performance on lower-end devices
-
----
-
-#### F. Service Worker for Offline Caching (2-3 days)
-
-```typescript
-// vite.config.ts - Add PWA plugin
-import { VitePWA } from "vite-plugin-pwa";
-
-export default defineConfig({
-  plugins: [
-    react(),
-    VitePWA({
-      registerType: "autoUpdate",
-      workbox: {
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/pokeapi\.co\/api\/v2\//,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "pokemon-api-cache",
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24, // 1 day
-              },
-            },
-          },
-          {
-            urlPattern: /\.(?:png|jpg|jpeg|webp|svg)$/,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "pokemon-images-cache",
-              expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 60 * 60 * 24 * 7, // 1 week
-              },
-            },
-          },
-        ],
-      },
-    }),
-  ],
-});
-```
-
-**Impact:**
-
-- Offline functionality
-- Instant load for cached resources
-- Better mobile experience
-
----
-
-##### 3. Performance Measurement Tools
-
-#### A. Lighthouse CI (Automated)
-
-```yaml
-# .github/workflows/lighthouse.yml
-name: Lighthouse CI
-on: [pull_request]
-
-jobs:
-  lighthouse:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Setup Node
-        uses: actions/setup-node@v2
-      - name: Install dependencies
-        run: npm install
-      - name: Build
-        run: npm run build
-      - name: Run Lighthouse CI
-        uses: treosh/lighthouse-ci-action@v9
-        with:
-          urls: |
-            http://localhost:5173
-          uploadArtifacts: true
-          temporaryPublicStorage: true
-```
-
-**Metrics Tracked:**
-
-- Performance Score (target: >90)
-- First Contentful Paint (target: <1.8s)
-- Time to Interactive (target: <3.5s)
-- Total Blocking Time (target: <200ms)
-- Cumulative Layout Shift (target: <0.1)
-
----
+----
 
 #### B. Chrome DevTools Performance Profiler
-
-```typescript
-// Add performance markers
-function fetchPokemonList() {
-  performance.mark("pokemon-fetch-start");
-
-  // ... fetch logic
-
-  performance.mark("pokemon-fetch-end");
-  performance.measure("pokemon-fetch", "pokemon-fetch-start", "pokemon-fetch-end");
-
-  const measure = performance.getEntriesByName("pokemon-fetch")[0];
-  console.log(`Pokemon fetch took ${measure.duration}ms`);
-}
-```
 
 **How to Use:**
 
@@ -2032,128 +1224,13 @@ function onRenderCallback(id: string, phase: "mount" | "update", actualDuration:
 <Profiler id="PokemonList" onRender={onRenderCallback}>
   <PokemonList {...props} />
 </Profiler>;
-```
+````
 
 **Metrics to Watch:**
 
 - Render duration per component
 - Number of re-renders
 - Unnecessary updates
-
----
-
-#### D. Web Vitals Monitoring (Production)
-
-```typescript
-// monitoring/webVitals.ts
-import { onCLS, onFID, onLCP, onFCP, onTTFB, Metric } from "web-vitals";
-
-function sendToAnalytics(metric: Metric) {
-  const body = JSON.stringify({
-    name: metric.name,
-    value: metric.value,
-    rating: metric.rating,
-    delta: metric.delta,
-    id: metric.id,
-    navigationType: metric.navigationType,
-  });
-
-  // Use sendBeacon for reliability
-  navigator.sendBeacon("/analytics", body);
-
-  // Also send to monitoring service
-  MonitoringService.trackPerformance(metric.name, metric.value);
-}
-
-// Track all Web Vitals
-onCLS(sendToAnalytics);
-onFID(sendToAnalytics);
-onLCP(sendToAnalytics);
-onFCP(sendToAnalytics);
-onTTFB(sendToAnalytics);
-```
-
----
-
-#### E. Bundle Analyzer
-
-```bash
-# Install bundle analyzer
-npm install --save-dev rollup-plugin-visualizer
-
-# vite.config.ts
-import { visualizer } from 'rollup-plugin-visualizer';
-
-export default defineConfig({
-  plugins: [
-    react(),
-    visualizer({
-      open: true,
-      gzipSize: true,
-      brotliSize: true
-    })
-  ]
-});
-
-# Analyze after build
-npm run build
-```
-
-**Metrics to Track:**
-
-- Total bundle size (target: <500KB)
-- Largest modules (identify optimization opportunities)
-- Code splitting effectiveness
-
----
-
-##### 4. Key Performance Metrics
-
-| Metric                             | Current    | Target  | Tool            |
-| ---------------------------------- | ---------- | ------- | --------------- |
-| **Parallel Load Time**             | 1-2s       | <2s     | Custom tracking |
-| **Time to Skeleton Cards**         | <100ms     | <100ms  | Performance API |
-| **First Contentful Paint (FCP)**   | ~800ms     | <1.8s   | Lighthouse      |
-| **Largest Contentful Paint (LCP)** | ~2s        | <2.5s   | Web Vitals      |
-| **Time to Interactive (TTI)**      | ~3s        | <3.5s   | Lighthouse      |
-| **Total Blocking Time (TBT)**      | <200ms     | <200ms  | Lighthouse      |
-| **Cumulative Layout Shift (CLS)**  | <0.05      | <0.1    | Web Vitals      |
-| **First Input Delay (FID)**        | <10ms      | <100ms  | Web Vitals      |
-| **Bundle Size (Initial)**          | ~300KB     | <250KB  | Bundle analyzer |
-| **Bundle Size (Gzipped)**          | ~100KB     | <100KB  | Bundle analyzer |
-| **API Response Time**              | 500-1500ms | <1000ms | Network tab     |
-| **Memory Usage**                   | ~50MB      | <100MB  | Chrome DevTools |
-| **Failed Pokemon Ratio**           | <5%        | <5%     | Custom tracking |
-
----
-
-##### 5. Performance Budget
-
-```javascript
-// lighthouserc.js
-module.exports = {
-  ci: {
-    collect: {
-      startServerCommand: "npm run preview",
-      url: ["http://localhost:4173"],
-    },
-    assert: {
-      preset: "lighthouse:recommended",
-      assertions: {
-        "categories:performance": ["error", { minScore: 0.9 }],
-        "categories:accessibility": ["error", { minScore: 0.9 }],
-        "first-contentful-paint": ["error", { maxNumericValue: 1800 }],
-        "largest-contentful-paint": ["error", { maxNumericValue: 2500 }],
-        "cumulative-layout-shift": ["error", { maxNumericValue: 0.1 }],
-        "total-blocking-time": ["error", { maxNumericValue: 200 }],
-      },
-    },
-    upload: {
-      target: "temporary-public-storage",
-    },
-  },
-};
-```
 
 **CI/CD Integration:**
 
@@ -2263,151 +1340,7 @@ terraform apply -var="active_environment=blue"
 
 ---
 
-##### 3. Canary Deployment Strategy (Recommended)
-
-```yaml
-# Gradual rollout to minimize risk:
-# Phase 1: 5% of traffic → new version
-# Phase 2: 25% of traffic → new version
-# Phase 3: 50% of traffic → new version
-# Phase 4: 100% of traffic → new version
-
-# If any phase shows errors: automatic rollback
-
-# GitHub Actions workflow
-name: Canary Deployment
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Build
-        run: npm run build
-
-      - name: Deploy Canary (5%)
-        run: |
-          aws deploy create-deployment \
-            --application-name pokemon-dashboard \
-            --deployment-group-name canary-group \
-            --deployment-config-name CodeDeployDefault.Canary10Percent5Minutes
-
-      - name: Monitor Canary
-        run: |
-          # Check error rates
-          ERROR_RATE=$(get_error_rate_from_monitoring)
-
-          if [ $ERROR_RATE > 5 ]; then
-            echo "High error rate detected. Rolling back..."
-            aws deploy stop-deployment --deployment-id $DEPLOYMENT_ID
-            exit 1
-          fi
-
-      - name: Promote Canary
-        if: success()
-        run: |
-          # Gradually increase traffic
-          for PERCENT in 25 50 100; do
-            deploy_to_percent $PERCENT
-            monitor_for_errors
-          done
-```
-
-**Automatic Rollback Triggers:**
-
-```typescript
-// monitoring/autoRollback.ts
-interface HealthMetrics {
-  errorRate: number;
-  averageResponseTime: number;
-  successRate: number;
-  memoryUsage: number;
-}
-
-class AutoRollbackMonitor {
-  private thresholds = {
-    errorRate: 5, // 5%
-    averageResponseTime: 3000, // 3s
-    successRate: 95, // 95%
-    memoryUsage: 500, // 500MB
-  };
-
-  async checkHealth(): Promise<boolean> {
-    const metrics = await this.collectMetrics();
-
-    // Check each threshold
-    if (metrics.errorRate > this.thresholds.errorRate) {
-      await this.triggerRollback("High error rate");
-      return false;
-    }
-
-    if (metrics.averageResponseTime > this.thresholds.averageResponseTime) {
-      await this.triggerRollback("Slow response time");
-      return false;
-    }
-
-    if (metrics.successRate < this.thresholds.successRate) {
-      await this.triggerRollback("Low success rate");
-      return false;
-    }
-
-    return true;
-  }
-
-  private async triggerRollback(reason: string) {
-    console.error(`Triggering automatic rollback: ${reason}`);
-
-    // Alert team
-    await this.sendAlert(reason);
-
-    // Execute rollback
-    await this.executeRollback();
-  }
-
-  private async executeRollback() {
-    // Call deployment API to rollback
-    await fetch("/api/deployments/rollback", {
-      method: "POST",
-      body: JSON.stringify({
-        reason: "Automatic rollback triggered",
-        timestamp: Date.now(),
-      }),
-    });
-  }
-
-  private async sendAlert(reason: string) {
-    // Send to Slack/PagerDuty/Email
-    await fetch(process.env.SLACK_WEBHOOK_URL, {
-      method: "POST",
-      body: JSON.stringify({
-        text: `🚨 Automatic rollback triggered: ${reason}`,
-        channel: "#deployments",
-      }),
-    });
-  }
-}
-```
-
-**Pros:**
-
-- ✅ Gradual rollout minimizes risk
-- ✅ Automatic rollback on issues
-- ✅ Real user testing
-
-**Cons:**
-
-- ❌ Slower full rollout (30-60 minutes)
-- ❌ More complex monitoring setup
-
----
-
-##### 4. Feature Flags (Toggle Changes)
+##### 3. Feature Flags (Toggle Changes)
 
 ```typescript
 // config/featureFlags.ts
@@ -2486,201 +1419,6 @@ curl -X POST /api/feature-flags \
 
 ---
 
-##### 5. Database/Schema Rollback Strategy
-
-```typescript
-// For apps with databases (future consideration)
-
-// migrations/
-// ├── 001_initial_schema.sql
-// ├── 002_add_favorites.sql
-// ├── 003_add_user_preferences.sql
-
-// Always write backward-compatible migrations
--- GOOD: Add nullable column (backward compatible)
-ALTER TABLE pokemon ADD COLUMN favorites INTEGER NULL;
-
--- BAD: Add non-null column (breaks old code)
-ALTER TABLE pokemon ADD COLUMN favorites INTEGER NOT NULL;
-
-// Rollback process
-npm run migrate:rollback  // Reverts last migration
-```
-
----
-
-##### 6. Monitoring & Alerting for Rollback Decisions
-
-```typescript
-// monitoring/deploymentMonitor.ts
-class DeploymentMonitor {
-  private deploymentStart: number;
-  private baselineMetrics: Metrics;
-
-  async startMonitoring() {
-    this.deploymentStart = Date.now();
-    this.baselineMetrics = await this.getBaselineMetrics();
-
-    // Monitor for 15 minutes post-deployment
-    const monitoringDuration = 15 * 60 * 1000;
-    const checkInterval = 60 * 1000; // Check every minute
-
-    const intervalId = setInterval(async () => {
-      const shouldRollback = await this.checkForIssues();
-
-      if (shouldRollback) {
-        clearInterval(intervalId);
-        await this.initiateRollback();
-      }
-
-      if (Date.now() - this.deploymentStart > monitoringDuration) {
-        clearInterval(intervalId);
-        console.log("✅ Deployment stable. Monitoring complete.");
-      }
-    }, checkInterval);
-  }
-
-  private async checkForIssues(): Promise<boolean> {
-    const current = await this.getCurrentMetrics();
-
-    // Compare to baseline
-    const errorRateIncrease = current.errorRate - this.baselineMetrics.errorRate;
-    const responseTimeIncrease = current.avgResponseTime - this.baselineMetrics.avgResponseTime;
-
-    // Rollback triggers
-    if (errorRateIncrease > 3) {
-      // 3% increase in errors
-      console.error("❌ Error rate spike detected");
-      return true;
-    }
-
-    if (responseTimeIncrease > 1000) {
-      // 1s increase in response time
-      console.error("❌ Response time degradation detected");
-      return true;
-    }
-
-    if (current.crashRate > 0.1) {
-      // >0.1% crash rate
-      console.error("❌ App crashes detected");
-      return true;
-    }
-
-    return false;
-  }
-
-  private async initiateRollback() {
-    // 1. Alert team
-    await this.sendAlertToTeam();
-
-    // 2. Execute rollback
-    await this.executeAutomaticRollback();
-
-    // 3. Create incident report
-    await this.createIncidentReport();
-  }
-}
-```
-
----
-
-##### 7. Recommended Deployment Strategy for This Project
-
-**For Small/Medium Scale (Current):**
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy to Production
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install dependencies
-        run: npm install
-      - name: Run tests
-        run: npm test
-      - name: Run Lighthouse CI
-        run: npm run lighthouse:ci
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Build
-        run: npm run build
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: dist
-          path: dist/
-
-  deploy-staging:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download build
-        uses: actions/download-artifact@v2
-      - name: Deploy to staging
-        run: npm run deploy:staging
-      - name: Run smoke tests
-        run: npm run test:smoke
-
-  deploy-production:
-    needs: deploy-staging
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://pokemon-dashboard.com
-    steps:
-      - name: Deploy to production (Vercel/Netlify)
-        run: npm run deploy:production
-
-      - name: Monitor deployment
-        run: |
-          sleep 60
-          npm run monitor:health
-
-      - name: Alert on success
-        run: |
-          curl -X POST $SLACK_WEBHOOK \
-            -d '{"text": "✅ Pokemon Dashboard deployed successfully"}'
-```
-
-**Rollback Command:**
-
-```bash
-# Vercel/Netlify instant rollback
-vercel rollback --yes
-# OR
-netlify rollback --yes
-```
-
----
-
-#### Summary: Rollback & Deployment Strategy
-
-| Strategy          | Speed     | Complexity | Recommended For                        |
-| ----------------- | --------- | ---------- | -------------------------------------- |
-| **Git Revert**    | 1-5 min   | Low        | Small teams, low traffic               |
-| **Blue-Green**    | <10 sec   | Medium     | Medium traffic, zero-downtime required |
-| **Canary**        | 30-60 min | High       | High traffic, gradual validation       |
-| **Feature Flags** | <1 sec    | Medium     | A/B testing, gradual rollouts          |
-
-**Recommended for Pokemon Dashboard:**
-
-1. **Phase 1 (Current)**: Git-based deployment with Vercel/Netlify (instant rollback)
-2. **Phase 2 (10k+ users)**: Add feature flags for critical changes
-3. **Phase 3 (100k+ users)**: Implement canary deployments with automatic rollback
-
----
-
 ## Summary
 
 This architecture document provides a comprehensive view of:
@@ -2694,12 +1432,9 @@ This architecture document provides a comprehensive view of:
 - Current refactoring (Issue #2) provides solid foundation for scaling
 - Architecture can handle 10 widgets with minimal changes
 - 100 widgets requires complete redesign (micro-frontend architecture)
-- Real-time support needs WebSocket layer + state management overhaul
-- Production deployment strategy scales based on traffic and risk tolerance
 
 **Estimated Effort to Production-Ready:**
 
 - Monitoring & Error Handling: 1 week
 - Performance Optimizations: 1 week
-- Deployment Pipeline: 3-5 days
 - **Total: 2-3 weeks for full production readiness**
