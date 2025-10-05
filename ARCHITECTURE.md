@@ -362,7 +362,7 @@ function App() {
 
 #### Architecture Pattern: Micro-Frontend with Widget Platform
 
-````typescript
+`````typescript
 // 1. WIDGET REGISTRY SYSTEM
 interface Widget {
   id: string;
@@ -487,101 +487,7 @@ class APIManager {
 
 #### Key Metrics to Track:
 
-##### 1. Performance Metrics
-
-**Frontend Performance:**
-
-```typescript
-// Web Vitals (Core Web Vitals)
-import { onCLS, onFID, onLCP, onFCP, onTTFB } from "web-vitals";
-
-function sendToAnalytics(metric) {
-  // Send to monitoring service
-  analytics.track("Web Vital", {
-    name: metric.name,
-    value: metric.value,
-    rating: metric.rating,
-    delta: metric.delta,
-    id: metric.id,
-  });
-}
-
-// Track Core Web Vitals
-onCLS(sendToAnalytics); // Cumulative Layout Shift (target: <0.1)
-onFID(sendToAnalytics); // First Input Delay (target: <100ms)
-onLCP(sendToAnalytics); // Largest Contentful Paint (target: <2.5s)
-onFCP(sendToAnalytics); // First Contentful Paint (target: <1.8s)
-onTTFB(sendToAnalytics); // Time to First Byte (target: <600ms)
-````
-
-**Custom Performance Metrics:**
-
-```typescript
-// API Response Times
-class PerformanceTracker {
-  static trackAPICall(endpoint: string, duration: number, success: boolean) {
-    analytics.track("API Call", {
-      endpoint,
-      duration,
-      success,
-      timestamp: Date.now(),
-    });
-
-    // Send to monitoring service
-    if (duration > 3000) {
-      // Alert on slow API calls
-      logger.warn("Slow API call", { endpoint, duration });
-    }
-  }
-
-  static trackComponentRender(componentName: string, duration: number) {
-    analytics.track("Component Render", {
-      component: componentName,
-      duration,
-      timestamp: Date.now(),
-    });
-  }
-
-  static trackParallelLoadingPerformance() {
-    const startTime = performance.now();
-
-    return () => {
-      const duration = performance.now() - startTime;
-      analytics.track("Pokemon List Load", {
-        duration,
-        parallelRequests: 10,
-        timestamp: Date.now(),
-      });
-    };
-  }
-}
-
-// Usage in App.tsx
-const fetchPokemonList = async () => {
-  const trackLoad = PerformanceTracker.trackParallelLoadingPerformance();
-
-  try {
-    // ... fetch logic
-    trackLoad();
-    PerformanceTracker.trackAPICall("pokemon/list", duration, true);
-  } catch (err) {
-    PerformanceTracker.trackAPICall("pokemon/list", duration, false);
-  }
-};
-```
-
-**Metrics Dashboard:**
-
-- ✅ **Parallel Load Time**: Target <2s (10x improvement maintained)
-- ✅ **Time to Skeleton Cards**: Target <100ms
-- ✅ **Individual Pokemon Load Time**: Target <1s per request
-- ✅ **Failed Pokemon Ratio**: Target <5% failure rate
-- ✅ **Bundle Size**: Target <500KB initial bundle
-- ✅ **Memory Usage**: Track for memory leaks
-
----
-
-##### 2. Error Tracking (Simple Self-Contained Solution)
+##### 1. Error Tracking (Simple Self-Contained Solution)
 
 **Simple LocalStorage-Based Error Tracking** (No External Services Required)
 
@@ -1224,7 +1130,7 @@ function onRenderCallback(id: string, phase: "mount" | "update", actualDuration:
 <Profiler id="PokemonList" onRender={onRenderCallback}>
   <PokemonList {...props} />
 </Profiler>;
-````
+`````
 
 **Metrics to Watch:**
 
