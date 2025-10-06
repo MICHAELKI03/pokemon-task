@@ -244,6 +244,7 @@ export interface PokemonWithDescription extends Pokemon {
 ---
 
 ## 2. Scaling Considerations
+In general, when we need to consider scaling, we need to be aware of memory consumption and slowness in application rendering. It can be handled by keeping only essential data (URL) and fetching full data (image) on demand. Also, we need to release the data. For example, we can store URLs only in the Redux store and fetch/release data when the component is mounted/unmounted or visible/invisible, depending on implementation. In addition, we can manage a cache of recently fetched data. The size of the cache can be defined by checking application behavior.
 
 ### 10 Widgets: How would your architecture handle 10 widgets?
 
